@@ -9,8 +9,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.util.asJsoup
 import extensions.utils.getPreferencesLazy
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -53,7 +55,6 @@ class AnimeWorldIndia(
 
     // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        // WordPress search: https://watchanimeworld.net/?s=naruto
         return GET("$baseUrl/?s=$query&paged=$page")
     }
 
@@ -69,21 +70,23 @@ class AnimeWorldIndia(
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         title = document.selectFirst("h1, h2")?.text()?.trim() ?: "Unknown"
-        thumbnail_url = document.selectFirst("img")?.attr("abs:src")
+
+        thumbnail_url =
+            document.selectFirst("meta[property=og:image]")?.attr("abs:content")
+                ?: document.selectFirst("img.wp-post-image, img")?.attr("abs:src")
+
         description = document.selectFirst(".entry-content, div.entry-content")?.text()?.trim()
         genre = document.select("a[rel=tag]").joinToString { it.text() }
         status = SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() =
-        "a[href*='/episode/']"
+    override fun episodeListSelector() = "a[href*='/episode/']"
 
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
         val url = element.attr("href")
         setUrlWithoutDomain(url)
 
-        // Make a clean name
         val text = element.text().trim()
         name = if (text.isNotBlank()) text else url.substringAfterLast("/").ifBlank { "Episode" }
 
@@ -91,21 +94,34 @@ class AnimeWorldIndia(
     }
 
     // ============================ Video Links =============================
-    // Many WordPress anime sites embed player inside iframe.
-    override fun videoListSelector() = "iframe"
+    override fun videoListParse(response: Response): List<Video> {
+        val document = response.asJsoup()
 
-    override fun videoFromElement(element: Element): Video {
-        val url = element.attr("abs:src")
-        val quality = "Server"
+        val iframeUrl = document.selectFirst("iframe")?.attr("abs:src")
+            ?: throw Exception("No video iframe found")
 
-        return Video(url, quality, url)
+        // If iframe is already direct video
+        if (iframeUrl.contains(".m3u8") || iframeUrl.contains(".mp4")) {
+            return listOf(Video(iframeUrl, "Direct", iframeUrl))
+        }
+
+        // Open iframe page and find direct link
+        val iframeDoc = client.newCall(GET(iframeUrl, headers)).execute().asJsoup()
+
+        val m3u8 = iframeDoc.selectFirst("source[src$=.m3u8]")?.attr("abs:src")
+            ?: iframeDoc.selectFirst("a[href$=.m3u8]")?.attr("abs:href")
+
+        val mp4 = iframeDoc.selectFirst("source[src$=.mp4]")?.attr("abs:src")
+            ?: iframeDoc.selectFirst("a[href$=.mp4]")?.attr("abs:href")
+
+        val finalUrl = m3u8 ?: mp4 ?: throw Exception("No direct stream link found")
+
+        return listOf(Video(finalUrl, "Stream", finalUrl))
     }
 
-    override fun videoUrlParse(document: Document) = document.location()
-
     override fun List<Video>.sort(): List<Video> {
-        val pref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        return sortedWith(compareBy { it.quality.contains(pref) }).reversed()
+        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        return sortedWith(compareBy { it.quality.contains(quality) }).reversed()
     }
 
     // ============================ Preferences =============================
