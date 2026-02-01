@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - master
-    paths:
-      - "**"
-      - "!**.md"
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +31,23 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build extension APK (forced)
+      - name: Generate signing key
+        run: |
+          keytool -genkeypair -v \
+            -keystore signingkey.jks \
+            -storepass android \
+            -keypass android \
+            -alias key0 \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=IN"
+
+      - name: Build extension APK
+        env:
+          ALIAS: key0
+          KEY_STORE_PASSWORD: android
+          KEY_PASSWORD: android
         run: |
           chmod +x ./gradlew
           ./gradlew :src:all:animeworldindia:assembleRelease
