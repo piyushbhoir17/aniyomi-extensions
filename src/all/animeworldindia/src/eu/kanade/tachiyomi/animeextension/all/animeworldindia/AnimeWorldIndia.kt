@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import extensions.utils.getPreferencesLazy
 import okhttp3.Request
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -94,18 +93,16 @@ class AnimeWorldIndia(
     }
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-
+    override fun videoListParse(document: Document): List<Video> {
         val iframeUrl = document.selectFirst("iframe")?.attr("abs:src")
             ?: throw Exception("No video iframe found")
 
-        // If iframe is already direct video
+        // If iframe already direct stream
         if (iframeUrl.contains(".m3u8") || iframeUrl.contains(".mp4")) {
             return listOf(Video(iframeUrl, "Direct", iframeUrl))
         }
 
-        // Open iframe page and find direct link
+        // Open iframe page and extract real stream
         val iframeDoc = client.newCall(GET(iframeUrl, headers)).execute().asJsoup()
 
         val m3u8 = iframeDoc.selectFirst("source[src$=.m3u8]")?.attr("abs:src")
