@@ -9,7 +9,6 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
 import extensions.utils.getPreferencesLazy
 import okhttp3.Request
 import org.jsoup.nodes.Document
@@ -93,62 +92,16 @@ class AnimeWorldIndia(
     }
 
     // ============================ Video Links =============================
-    // REQUIRED by ParsedAnimeHttpSource
     override fun videoListSelector() = "iframe"
 
-    // Not required in this implementation, but must exist in ParsedAnimeHttpSource
     override fun videoFromElement(element: Element): Video {
         val url = element.attr("abs:src").ifBlank {
             element.attr("abs:data-src")
         }
 
-        if (url.isBlank()) throw Exception("Empty iframe url")
+        if (url.isBlank()) throw Exception("No iframe src/data-src found")
 
         return Video(url, "Iframe", url)
-    }
-
-    // Parse ALL iframe options (src + data-src) and try to extract direct .m3u8/.mp4 links
-    override fun videoListParse(document: Document): List<Video> {
-        val iframeUrls = document.select("iframe").mapNotNull { iframe ->
-            iframe.attr("abs:src").ifBlank {
-                iframe.attr("abs:data-src")
-            }.takeIf { it.isNotBlank() }
-        }.distinct()
-
-        if (iframeUrls.isEmpty()) throw Exception("No video iframe found")
-
-        val videos = mutableListOf<Video>()
-
-        iframeUrls.forEachIndexed { index, iframeUrl ->
-            // If iframe is already a direct stream
-            if (iframeUrl.contains(".m3u8") || iframeUrl.contains(".mp4")) {
-                videos += Video(iframeUrl, "Direct ${index + 1}", iframeUrl)
-                return@forEachIndexed
-            }
-
-            // Open iframe page and extract real stream
-            val iframeDoc = client.newCall(GET(iframeUrl, headers)).execute().asJsoup()
-
-            val m3u8 = iframeDoc.selectFirst("source[src$=.m3u8]")?.attr("abs:src")
-                ?: iframeDoc.selectFirst("a[href$=.m3u8]")?.attr("abs:href")
-
-            val mp4 = iframeDoc.selectFirst("source[src$=.mp4]")?.attr("abs:src")
-                ?: iframeDoc.selectFirst("a[href$=.mp4]")?.attr("abs:href")
-
-            val finalUrl = m3u8 ?: mp4
-
-            if (finalUrl != null) {
-                videos += Video(finalUrl, "Stream ${index + 1}", finalUrl)
-            }
-        }
-
-        if (videos.isEmpty()) throw Exception("No direct stream link found")
-        return videos
-    }
-
-    override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        return sortedWith(compareBy { it.quality.contains(quality) }).reversed()
     }
 
     // ============================ Preferences =============================
