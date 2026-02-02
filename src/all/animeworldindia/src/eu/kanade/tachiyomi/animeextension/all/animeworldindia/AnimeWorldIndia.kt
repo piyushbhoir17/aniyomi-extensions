@@ -94,26 +94,42 @@ class AnimeWorldIndia(
 
     // ============================ Video Links =============================
     override fun videoListParse(document: Document): List<Video> {
-        val iframeUrl = document.selectFirst("iframe")?.attr("abs:src")
-            ?: throw Exception("No video iframe found")
+        // Collect all possible iframe URLs (src + data-src)
+        val iframeUrls = document.select("iframe").mapNotNull { iframe ->
+            iframe.attr("abs:src").ifBlank {
+                iframe.attr("abs:data-src")
+            }.takeIf { it.isNotBlank() }
+        }.distinct()
 
-        // If iframe already direct stream
-        if (iframeUrl.contains(".m3u8") || iframeUrl.contains(".mp4")) {
-            return listOf(Video(iframeUrl, "Direct", iframeUrl))
+        if (iframeUrls.isEmpty()) throw Exception("No video iframe found")
+
+        val videos = mutableListOf<Video>()
+
+        iframeUrls.forEachIndexed { index, iframeUrl ->
+            // If iframe is already a direct stream
+            if (iframeUrl.contains(".m3u8") || iframeUrl.contains(".mp4")) {
+                videos += Video(iframeUrl, "Direct ${index + 1}", iframeUrl)
+                return@forEachIndexed
+            }
+
+            // Open iframe page and extract real stream
+            val iframeDoc = client.newCall(GET(iframeUrl, headers)).execute().asJsoup()
+
+            val m3u8 = iframeDoc.selectFirst("source[src$=.m3u8]")?.attr("abs:src")
+                ?: iframeDoc.selectFirst("a[href$=.m3u8]")?.attr("abs:href")
+
+            val mp4 = iframeDoc.selectFirst("source[src$=.mp4]")?.attr("abs:src")
+                ?: iframeDoc.selectFirst("a[href$=.mp4]")?.attr("abs:href")
+
+            val finalUrl = m3u8 ?: mp4
+
+            if (finalUrl != null) {
+                videos += Video(finalUrl, "Stream ${index + 1}", finalUrl)
+            }
         }
 
-        // Open iframe page and extract real stream
-        val iframeDoc = client.newCall(GET(iframeUrl, headers)).execute().asJsoup()
-
-        val m3u8 = iframeDoc.selectFirst("source[src$=.m3u8]")?.attr("abs:src")
-            ?: iframeDoc.selectFirst("a[href$=.m3u8]")?.attr("abs:href")
-
-        val mp4 = iframeDoc.selectFirst("source[src$=.mp4]")?.attr("abs:src")
-            ?: iframeDoc.selectFirst("a[href$=.mp4]")?.attr("abs:href")
-
-        val finalUrl = m3u8 ?: mp4 ?: throw Exception("No direct stream link found")
-
-        return listOf(Video(finalUrl, "Stream", finalUrl))
+        if (videos.isEmpty()) throw Exception("No direct stream link found")
+        return videos
     }
 
     override fun List<Video>.sort(): List<Video> {
