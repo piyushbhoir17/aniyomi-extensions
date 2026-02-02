@@ -104,6 +104,23 @@ class AnimeWorldIndia(
         return Video(url, "Iframe", url)
     }
 
+    // REQUIRED by your ParsedAnimeHttpSource version
+    override fun videoUrlParse(document: Document): String {
+        val iframe = document.selectFirst("iframe")
+            ?: throw Exception("No video iframe found")
+
+        return iframe.attr("abs:src").ifBlank {
+            iframe.attr("abs:data-src")
+        }.ifBlank {
+            throw Exception("No iframe src/data-src found")
+        }
+    }
+
+    override fun List<Video>.sort(): List<Video> {
+        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        return sortedWith(compareBy { it.quality.contains(quality) }).reversed()
+    }
+
     // ============================ Preferences =============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
