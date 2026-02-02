@@ -93,8 +93,22 @@ class AnimeWorldIndia(
     }
 
     // ============================ Video Links =============================
+    // REQUIRED by ParsedAnimeHttpSource
+    override fun videoListSelector() = "iframe"
+
+    // Not required in this implementation, but must exist in ParsedAnimeHttpSource
+    override fun videoFromElement(element: Element): Video {
+        val url = element.attr("abs:src").ifBlank {
+            element.attr("abs:data-src")
+        }
+
+        if (url.isBlank()) throw Exception("Empty iframe url")
+
+        return Video(url, "Iframe", url)
+    }
+
+    // Parse ALL iframe options (src + data-src) and try to extract direct .m3u8/.mp4 links
     override fun videoListParse(document: Document): List<Video> {
-        // Collect all possible iframe URLs (src + data-src)
         val iframeUrls = document.select("iframe").mapNotNull { iframe ->
             iframe.attr("abs:src").ifBlank {
                 iframe.attr("abs:data-src")
